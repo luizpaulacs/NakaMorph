@@ -1,20 +1,28 @@
-import { db, auth, signInAnonymously, onAuthStateChanged, ref, onValue, set } from './firebase-config.js';
+import { db, auth, signInAnonymously, ref, onValue, set } from './firebase-config.js';
 import { Player } from './player.js';
 import { CollisionSystem } from './collision.js';
 import { Shop } from './shop.js';
+import { World, MiniMap } from './world.js';
+import { EvolutionSystem } from './evolution.js';
 
 // Elementos do DOM
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+
+// Configurações do Mundo
+const WORLD_WIDTH = 8000;   // 10x o canvas padrão (800)
+const WORLD_HEIGHT = 6000;  // 10x o canvas padrão (600)
 
 // Variáveis globais
 let gameRunning = false;
 let player = null;
 let collisionSystem = null;
 let shop = null;
+let world = null;
+let miniMap = null;
 let players = {};
 let foodItems = [];
-let mouseX = 400, mouseY = 300;
+let targetX = null, targetY = null;  // Posição alvo para movimento
 let animationId = null;
 
 // Configurações do Canvas
@@ -27,8 +35,10 @@ function resizeCanvas() {
 
 window.addEventListener('resize', resizeCanvas);
 
-// Movimento (Mouse/Touch)
+// Movimento (Mouse/Touch) - Agora controla direção, não posição absoluta
 function handleMove(e) {
+    if (!canvas || !player) return;
+    
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -43,33 +53,56 @@ function handleMove(e) {
         clientY = e.clientY;
     }
     
-    mouseX = (clientX - rect.left) * scaleX;
-    mouseY = (clientY - rect.top) * scaleY;
+    // Coordenadas do mouse na tela
+    const screenX = (clientX - rect.left) * scaleX;
+    const screenY = (clientY - rect.top) * scaleY;
     
-    // Limitar ao canvas
-    mouseX = Math.max(30, Math.min(canvas.width - 30, mouseX));
-    mouseY = Math.max(30, Math.min(canvas.height - 30, mouseY));
+    // Converter para coordenadas do mundo
+    const worldX = screenX + world.camera.x;
+    const worldY = screenY + world.camera.y;
+    
+    targetX = worldX;
+    targetY = worldY;
 }
 
 canvas.addEventListener('mousemove', handleMove);
 canvas.addEventListener('touchmove', handleMove);
 canvas.addEventListener('touchstart', handleMove);
 
-// Atualizar posição no Firebase
+// Atualizar posição com movimento suave para o alvo
 function updatePosition() {
-    if (!gameRunning || !player) return;
+    if (!gameRunning || !player || !world) return;
     
-    // Movimento suave em direção ao mouse
-    const dx = mouseX - player.data.x;
-    const dy = mouseY - player.data.y;
+    // Se não tem alvo, usa posição atual
+    if (targetX === null || targetY === null) {
+        targetX = player.data.x;
+        targetY = player.data.y;
+    }
+    
+    // Calcular direção
+    const dx = targetX - player.data.x;
+    const dy = targetY - player.data.y;
     const distance = Math.hypot(dx, dy);
     
+    // Velocidade base (diminui conforme cresce, aumenta com evolução)
+    const speedBonus = EvolutionSystem.getSpeedBonus(player.data.level);
+    let baseSpeed = 5;
+    
+    // Quanto maior, mais lento (mas evolução compensa)
+    const sizePenalty = Math.max(0.5, 1 - (player.data.size / 300));
+    let speed = baseSpeed * (1 + speedBonus / 100) * sizePenalty;
+    speed = Math.min(12, Math.max(3, speed));  // Limitar velocidade
+    
     if (distance > 5) {
-        const speed = Math.min(8, distance / 10);
-        const newX = player.data.x + (dx / distance) * speed;
-        const newY = player.data.y + (dy / distance) * speed;
-        player.updatePosition(newX, newY);
+        const moveX = (dx / distance) * speed;
+        const moveY = (dy / distance) * speed;
+        player.updatePosition(player.data.x + moveX, player.data.y + moveY, world);
+    } else if (distance > 0) {
+        player.updatePosition(targetX, targetY, world);
     }
+    
+    // Atualizar câmera para seguir o jogador
+    world.updateCamera(player.data.x, player.data.y, canvas.width, canvas.height);
     
     player.saveToFirebase();
 }
@@ -77,122 +110,167 @@ function updatePosition() {
 // Game Over
 function gameOver() {
     gameRunning = false;
-    document.getElementById('reviveAd').classList.remove('hidden');
-    
-    // Salvar pontuação final
-    alert(`💀 Game Over! Pontuação final: ${Math.floor(player.data.score)}`);
+    const reviveBtn = document.getElementById('reviveAd');
+    if (reviveBtn) reviveBtn.classList.remove('hidden');
+    alert(`💀 Game Over! Pontuação final: ${Math.floor(player?.data?.score || 0)}`);
 }
 
 // Reviver com anúncio
 function reviveWithAd() {
-    // Simular anúncio
     alert('📺 Assistindo anúncio para reviver...');
-    
-    // Resetar posição
-    player.updatePosition(canvas.width / 2, canvas.height / 2);
+    if (player && world) {
+        const spawnPoint = world.clampPosition(world.width / 2, world.height / 2, player.data.size);
+        player.updatePosition(spawnPoint.x, spawnPoint.y, world);
+        targetX = spawnPoint.x;
+        targetY = spawnPoint.y;
+    }
     gameRunning = true;
-    document.getElementById('reviveAd').classList.add('hidden');
+    const reviveBtn = document.getElementById('reviveAd');
+    if (reviveBtn) reviveBtn.classList.add('hidden');
 }
 
-// Desenhar o jogo
+// Desenhar grid de referência (opcional)
+function drawGrid() {
+    if (!ctx || !world) return;
+    
+    const gridSize = 500;
+    const startX = Math.floor(world.camera.x / gridSize) * gridSize;
+    const startY = Math.floor(world.camera.y / gridSize) * gridSize;
+    
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    
+    for (let x = startX; x < world.camera.x + canvas.width + gridSize; x += gridSize) {
+        const screenX = world.worldToScreen(x, 0).x;
+        if (screenX >= 0 && screenX <= canvas.width) {
+            ctx.beginPath();
+            ctx.moveTo(screenX, 0);
+            ctx.lineTo(screenX, canvas.height);
+            ctx.stroke();
+        }
+    }
+    
+    for (let y = startY; y < world.camera.y + canvas.height + gridSize; y += gridSize) {
+        const screenY = world.worldToScreen(0, y).y;
+        if (screenY >= 0 && screenY <= canvas.height) {
+            ctx.beginPath();
+            ctx.moveTo(0, screenY);
+            ctx.lineTo(canvas.width, screenY);
+            ctx.stroke();
+        }
+    }
+}
+
+// Desenhar o jogo (com câmera)
 function draw() {
-    if (!ctx || !canvas) return;
+    if (!ctx || !canvas || !world) return;
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Desenhar comida
+    // Fundo gradiente
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, '#1a472a');
+    gradient.addColorStop(1, '#0d2818');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Grid (opcional)
+    drawGrid();
+    
+    // Desenhar comida (apenas visível)
     foodItems.forEach(food => {
-        ctx.fillStyle = '#FFD700';
-        ctx.shadowBlur = 5;
-        ctx.beginPath();
-        ctx.arc(food.x, food.y, 6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#FFA500';
-        ctx.font = 'bold 10px Arial';
-        ctx.fillText(`+${food.value}`, food.x - 12, food.y - 8);
+        if (world.isVisible(food.x, food.y, 10, canvas.width, canvas.height)) {
+            const screen = world.worldToScreen(food.x, food.y);
+            ctx.fillStyle = '#FFD700';
+            ctx.shadowBlur = 5;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#FFA500';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText(`+${food.value}`, screen.x - 15, screen.y - 12);
+        }
     });
     
-    // Desenhar outros jogadores
+    // Desenhar outros jogadores (apenas visíveis)
     for (let id in players) {
         if (id === player?.id) continue;
         const p = players[id];
-        if (!p) continue;
+        if (!p || !p.x || !p.y) continue;
         
-        // Gradiente para outros jogadores
-        const gradient = ctx.createRadialGradient(p.x - 10, p.y - 10, 5, p.x, p.y, p.size);
-        gradient.addColorStop(0, '#FF4444');
-        gradient.addColorStop(1, '#CC0000');
-        ctx.fillStyle = gradient;
-        
-        ctx.shadowBlur = 8;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = 'white';
-        ctx.font = 'bold 12px Arial';
-        ctx.shadowBlur = 2;
-        ctx.fillText(`Lv.${p.level}`, p.x - 20, p.y - p.size - 5);
-        ctx.fillText(`⭐${Math.floor(p.score)}`, p.x - 20, p.y - p.size - 20);
+        if (world.isVisible(p.x, p.y, p.size || 30, canvas.width, canvas.height)) {
+            const screen = world.worldToScreen(p.x, p.y);
+            const stage = EvolutionSystem.getStage(p.level || 1);
+            EvolutionSystem.drawShape(ctx, screen.x, screen.y, p.size || 30, stage, false);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 10px Arial';
+            ctx.shadowBlur = 2;
+            ctx.fillText(`${stage.name} Lv.${p.level}`, screen.x - 30, screen.y - (p.size || 30) - 10);
+            
+            // Indicador de distância (opcional)
+            if (player && player.data) {
+                const distToPlayer = Math.hypot(p.x - player.data.x, p.y - player.data.y);
+                if (distToPlayer < 200) {
+                    ctx.fillStyle = '#FF4444';
+                    ctx.font = 'bold 8px Arial';
+                    ctx.fillText(`⚠️ ${Math.floor(distToPlayer)}`, screen.x - 20, screen.y - (p.size || 30) - 25);
+                }
+            }
+        }
     }
     
-    // Desenhar player
-    if (player) {
-        let gradient;
-        if (player.data.skin === 'dragon') {
-            gradient = ctx.createRadialGradient(player.data.x - 10, player.data.y - 10, 5, player.data.x, player.data.y, player.data.size);
-            gradient.addColorStop(0, '#44FF44');
-            gradient.addColorStop(1, '#00AA00');
-        } else if (player.data.skin === 'phoenix') {
-            gradient = ctx.createRadialGradient(player.data.x - 10, player.data.y - 10, 5, player.data.x, player.data.y, player.data.size);
-            gradient.addColorStop(0, '#FF6600');
-            gradient.addColorStop(1, '#FF3300');
-        } else {
-            gradient = ctx.createRadialGradient(player.data.x - 10, player.data.y - 10, 5, player.data.x, player.data.y, player.data.size);
-            gradient.addColorStop(0, '#44AAFF');
-            gradient.addColorStop(1, '#0066CC');
-        }
-        
-        ctx.fillStyle = gradient;
-        ctx.shadowBlur = 15;
-        ctx.beginPath();
-        ctx.arc(player.data.x, player.data.y, player.data.size, 0, Math.PI * 2);
-        ctx.fill();
+    // Desenhar player (sempre visível)
+    if (player && player.data) {
+        const screen = world.worldToScreen(player.data.x, player.data.y);
+        const stage = player.getEvolutionStage();
+        EvolutionSystem.drawShape(ctx, screen.x, screen.y, player.data.size, stage, true);
         
         // Efeito de boost
         if (player.data.boost) {
             ctx.strokeStyle = '#FFD700';
             ctx.lineWidth = 4;
             ctx.shadowBlur = 10;
-            ctx.beginPath();
-            ctx.arc(player.data.x, player.data.y, player.data.size + 5, 0, Math.PI * 2);
-            ctx.stroke();
-            
-            // Partículas de boost
-            for (let i = 0; i < 5; i++) {
-                ctx.fillStyle = '#FFD700';
+            if (stage.shape === 'circle') {
                 ctx.beginPath();
-                ctx.arc(player.data.x + (Math.random() - 0.5) * player.data.size, 
-                       player.data.y + (Math.random() - 0.5) * player.data.size, 
-                       3, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.arc(screen.x, screen.y, player.data.size + 5, 0, Math.PI * 2);
+                ctx.stroke();
+            } else if (stage.shape === 'square') {
+                ctx.strokeRect(screen.x - player.data.size - 5, screen.y - player.data.size - 5, 
+                              (player.data.size + 5) * 2, (player.data.size + 5) * 2);
             }
         }
         
         ctx.fillStyle = 'white';
-        ctx.font = 'bold 18px Arial';
+        ctx.font = 'bold 14px Arial';
         ctx.shadowBlur = 3;
-        ctx.fillText(`Lv.${player.data.level}`, player.data.x - 20, player.data.y - player.data.size - 10);
-        ctx.font = 'bold 12px Arial';
-        ctx.fillText(`👤 Você`, player.data.x - 25, player.data.y - player.data.size - 25);
+        ctx.fillText(`${stage.name} Lv.${player.data.level}`, screen.x - 40, screen.y - player.data.size - 15);
+        ctx.font = 'bold 11px Arial';
+        ctx.fillText(`👤 Você`, screen.x - 25, screen.y - player.data.size - 30);
+    }
+    
+    // Desenhar minimapa
+    if (miniMap) {
+        miniMap.draw(ctx, players, player);
     }
     
     ctx.shadowBlur = 0;
+    
+    // Indicador de borda do mundo (se estiver próximo)
+    if (player && world) {
+        const margin = 100;
+        if (player.data.x < margin || player.data.x > world.width - margin ||
+            player.data.y < margin || player.data.y > world.height - margin) {
+            ctx.fillStyle = 'rgba(255,0,0,0.7)';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText("⚠️ LIMITE DO MUNDO ⚠️", canvas.width / 2 - 100, 50);
+        }
+    }
 }
 
 // Loop principal do jogo
 function gameLoop() {
-    if (!gameRunning || !player || !collisionSystem) {
+    if (!gameRunning || !player || !collisionSystem || !world) {
         draw();
         if (animationId) {
             cancelAnimationFrame(animationId);
@@ -203,15 +281,13 @@ function gameLoop() {
     
     updatePosition();
     
-    // Recarregar comida
-    foodItems = CollisionSystem.generateFood(canvas, foodItems, 30);
-    
-    // Verificar colisões
+    // Verificar colisões com comida
     collisionSystem.checkFoodCollision(foodItems, (points) => {
         player.addPoints(points);
     });
     
-    const collisionResult = collisionSystem.checkPlayerCollision(players, async (id) => {
+    // Verificar colisões com outros jogadores
+    collisionSystem.checkPlayerCollision(players, async (id) => {
         await set(ref(db, `players/${id}`), null);
     });
     
@@ -225,18 +301,38 @@ function initFirebase(playerId) {
     const playersRef = ref(db, 'players');
     onValue(playersRef, (snapshot) => {
         players = snapshot.val() || {};
+    }, (error) => {
+        console.error('Erro ao conectar ao Firebase:', error);
     });
 }
 
 // Iniciar jogo
 async function startGame() {
     try {
+        const playBtn = document.getElementById('playAnonymously');
+        if (playBtn) {
+            playBtn.textContent = '⏳ Conectando...';
+            playBtn.disabled = true;
+        }
+        
         // Login anônimo
         const userCredential = await signInAnonymously(auth);
         const playerId = userCredential.user.uid;
         
+        console.log('Conectado com ID:', playerId);
+        
+        // Inicializar mundo gigante
+        world = new World(WORLD_WIDTH, WORLD_HEIGHT);
+        miniMap = new MiniMap(world, canvas);
+        
         // Inicializar player
         player = new Player(playerId, canvas);
+        
+        // Spawn em posição aleatória do mundo
+        const spawnX = Math.random() * (WORLD_WIDTH - 200) + 100;
+        const spawnY = Math.random() * (WORLD_HEIGHT - 200) + 100;
+        player.updatePosition(spawnX, spawnY, world);
+        
         player.setupDisconnect();
         await player.saveToFirebase();
         
@@ -245,6 +341,10 @@ async function startGame() {
         shop = new Shop(player);
         
         initFirebase(playerId);
+        
+        // Gerar comida pelo mundo
+        foodItems = world.generateFood(200);
+        
         gameRunning = true;
         
         // Alternar telas
@@ -255,12 +355,28 @@ async function startGame() {
         if (animationId) cancelAnimationFrame(animationId);
         gameLoop();
         
-        // Dar gemas iniciais (teste)
+        // Dar gemas iniciais
         player.addGems(20);
         
     } catch (error) {
-        console.error('Erro ao iniciar:', error);
-        alert('Erro ao conectar ao servidor. Tente novamente.');
+        console.error('Erro detalhado ao iniciar:', error);
+        
+        let errorMessage = 'Erro ao conectar: ';
+        if (error.code === 'auth/operation-not-allowed') {
+            errorMessage += 'Autenticação anônima não está ativada no Firebase Console.';
+        } else if (error.code === 'permission-denied') {
+            errorMessage += 'Permissão negada. Verifique as regras do Firebase.';
+        } else {
+            errorMessage += error.message;
+        }
+        
+        alert(errorMessage + '\n\nVerifique o console (F12) para mais detalhes.');
+        
+        const playBtn = document.getElementById('playAnonymously');
+        if (playBtn) {
+            playBtn.textContent = '🎮 Jogar Agora';
+            playBtn.disabled = false;
+        }
     }
 }
 
@@ -278,12 +394,3 @@ document.getElementById('closeShop').addEventListener('click', () => {
 
 // Resize inicial
 resizeCanvas();
-
-// Gerar comida inicial
-for (let i = 0; i < 30; i++) {
-    foodItems.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        value: 10 + Math.floor(Math.random() * 20)
-    });
-}
