@@ -1,12 +1,13 @@
 import { db, ref, set, onDisconnect } from './firebase-config.js';
+import { EvolutionSystem } from './evolution.js';
 
 export class Player {
     constructor(id, canvas) {
         this.id = id;
         this.canvas = canvas;
         this.data = {
-            x: canvas.width / 2,
-            y: canvas.height / 2,
+            x: 2000,
+            y: 2000,
             size: 30,
             score: 0,
             level: 1,
@@ -17,62 +18,70 @@ export class Player {
         };
     }
 
-    // Calcular nível baseado nos pontos
     calculateLevel(score) {
-        return Math.floor(score / 100) + 1;
+        return Math.max(1, Math.floor(Math.sqrt(score / 10)));
     }
 
-    // Calcular tamanho baseado no nível
     calculateSize(level) {
-        return 30 + (level - 1) * 5;
+        const baseSize = Math.min(80, Math.floor(25 + Math.log(level) * 10));
+        const bonus = EvolutionSystem.getSizeBonus(level);
+        return Math.min(100, baseSize + Math.floor(bonus / 5));
     }
 
-    // Adicionar pontos
     addPoints(points) {
         let multiplier = this.data.boost ? 2 : 1;
+        const collectBonus = EvolutionSystem.getCollectBonus(this.data.level);
+        multiplier += collectBonus / 100;
+        
         let gained = points * multiplier;
         this.data.score += gained;
-        this.data.level = this.calculateLevel(this.data.score);
-        this.data.size = this.calculateSize(this.data.level);
         
-        // Atualizar UI
-        document.getElementById('level').textContent = this.data.level;
-        document.getElementById('score').textContent = Math.floor(this.data.score);
-        document.getElementById('size').textContent = Math.floor(this.data.size);
+        const oldLevel = this.data.level;
+        const newLevel = this.calculateLevel(this.data.score);
+        
+        if (newLevel > oldLevel) {
+            const gemsReward = Math.floor((newLevel - oldLevel) * 2);
+            this.data.gems += gemsReward;
+            this.updateUI();
+        }
+        
+        this.data.level = newLevel;
+        this.data.size = this.calculateSize(this.data.level);
+        this.updateUI();
         
         return gained;
     }
 
-    // Adicionar gemas
+    updateUI() {
+        const levelEl = document.getElementById('level');
+        const scoreEl = document.getElementById('score');
+        const sizeEl = document.getElementById('size');
+        const gemsEl = document.getElementById('gems');
+        const evolutionEl = document.getElementById('evolution-title');
+        
+        if (levelEl) levelEl.textContent = this.data.level;
+        if (scoreEl) scoreEl.textContent = Math.floor(this.data.score);
+        if (sizeEl) sizeEl.textContent = Math.floor(this.data.size);
+        if (gemsEl) gemsEl.textContent = this.data.gems;
+        if (evolutionEl) evolutionEl.textContent = EvolutionSystem.getStage(this.data.level).name;
+    }
+
     addGems(amount) {
         this.data.gems += amount;
-        document.getElementById('gems').textContent = this.data.gems;
+        this.updateUI();
         this.saveToFirebase();
     }
 
-    // Remover gemas
     removeGems(amount) {
         if (this.data.gems >= amount) {
             this.data.gems -= amount;
-            document.getElementById('gems').textContent = this.data.gems;
+            this.updateUI();
             this.saveToFirebase();
             return true;
         }
         return false;
     }
 
-    // Ativar boost
-    activateBoost(durationSeconds = 1800) { // 30 minutos padrão
-        this.data.boost = true;
-        this.data.boostEndTime = Date.now() + (durationSeconds * 1000);
-        
-        // Desativar boost após o tempo
-        setTimeout(() => {
-            this.data.boost = false;
-        }, durationSeconds * 1000);
-    }
-
-    // Salvar no Firebase
     async saveToFirebase() {
         await set(ref(db, `players/${this.id}`), {
             x: this.data.x,
@@ -87,24 +96,12 @@ export class Player {
         });
     }
 
-    // Configurar remoção ao desconectar
     setupDisconnect() {
         onDisconnect(ref(db, `players/${this.id}`)).remove();
     }
 
-    // Atualizar posição
-    // Dentro da classe Player, atualizar a função updatePosition:
-
-updatePosition(x, y, world) {
-    // Aplicar limites do mundo
-    const clamped = world.clampPosition(x, y, this.data.size);
-    this.data.x = clamped.x;
-    this.data.y = clamped.y;
-}
-
-    // Aplicar skin
-    setSkin(skinId) {
-        this.data.skin = skinId;
-        this.saveToFirebase();
+    updatePosition(x, y, worldWidth, worldHeight) {
+        this.data.x = Math.max(this.data.size, Math.min(worldWidth - this.data.size, x));
+        this.data.y = Math.max(this.data.size, Math.min(worldHeight - this.data.size, y));
     }
 }

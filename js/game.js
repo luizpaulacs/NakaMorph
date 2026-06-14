@@ -1,28 +1,27 @@
-import { db, auth, signInAnonymously, ref, onValue, set } from './firebase-config.js';
+import { db, auth, signInAnonymously, ref, onValue, set, remove } from './firebase-config.js';
 import { Player } from './player.js';
 import { CollisionSystem } from './collision.js';
+import { Shop } from './shop.js';
 import { EvolutionSystem } from './evolution.js';
 
-// Elementos do DOM
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-// Configurações do Mundo
+// Configurações
 const WORLD_WIDTH = 4000;
 const WORLD_HEIGHT = 4000;
 
-// Variáveis globais
+// Elementos DOM
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Variáveis
 let gameRunning = false;
 let player = null;
-let collisionSystem = null;
 let players = {};
 let foodItems = [];
-let targetX = null;
-let targetY = null;
+let targetX = null, targetY = null;
 let animationId = null;
 let camera = { x: 0, y: 0 };
 
-// Configurações do Canvas
+// Configurar canvas
 function resizeCanvas() {
     if (!canvas) return;
     canvas.width = window.innerWidth - 40;
@@ -32,7 +31,7 @@ window.addEventListener('resize', resizeCanvas);
 
 // Movimento
 function handleMove(e) {
-    if (!canvas || !player) return;
+    if (!canvas || !player || !gameRunning) return;
     
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -53,6 +52,10 @@ function handleMove(e) {
     
     targetX = screenX + camera.x;
     targetY = screenY + camera.y;
+    
+    // Limitar ao mundo
+    targetX = Math.max(50, Math.min(WORLD_WIDTH - 50, targetX));
+    targetY = Math.max(50, Math.min(WORLD_HEIGHT - 50, targetY));
 }
 
 if (canvas) {
@@ -71,12 +74,11 @@ function updateCamera() {
     camera.y = Math.max(0, Math.min(WORLD_HEIGHT - canvas.height, camera.y));
 }
 
-// Converter mundo para tela
+// Converter coordenadas
 function worldToScreen(worldX, worldY) {
     return { x: worldX - camera.x, y: worldY - camera.y };
 }
 
-// Verificar se está visível
 function isVisible(worldX, worldY, size) {
     if (!canvas) return false;
     const screen = worldToScreen(worldX, worldY);
@@ -84,7 +86,7 @@ function isVisible(worldX, worldY, size) {
             screen.y + size > 0 && screen.y - size < canvas.height);
 }
 
-// Atualizar posição do jogador
+// Movimento do jogador
 function updatePosition() {
     if (!gameRunning || !player) return;
     
@@ -97,20 +99,15 @@ function updatePosition() {
     const dy = targetY - player.data.y;
     const distance = Math.hypot(dx, dy);
     
-    let speed = 5;
     if (distance > 5) {
+        const speedBonus = EvolutionSystem.getSpeedBonus(player.data.level);
+        let speed = 5 * (1 + speedBonus / 100);
+        speed = Math.min(10, Math.max(3, speed));
+        
         const moveX = (dx / distance) * speed;
         const moveY = (dy / distance) * speed;
         
-        let newX = player.data.x + moveX;
-        let newY = player.data.y + moveY;
-        
-        // Limites do mundo
-        newX = Math.max(30, Math.min(WORLD_WIDTH - 30, newX));
-        newY = Math.max(30, Math.min(WORLD_HEIGHT - 30, newY));
-        
-        player.data.x = newX;
-        player.data.y = newY;
+        player.updatePosition(player.data.x + moveX, player.data.y + moveY, WORLD_WIDTH, WORLD_HEIGHT);
     }
     
     updateCamera();
@@ -124,9 +121,8 @@ function gameOver() {
     if (reviveBtn) reviveBtn.classList.remove('hidden');
 }
 
-// Reviver
 function reviveWithAd() {
-    if (!player || !canvas) return;
+    if (!player) return;
     alert('📺 Revivendo com anúncio...');
     player.data.x = WORLD_WIDTH / 2;
     player.data.y = WORLD_HEIGHT / 2;
@@ -137,69 +133,17 @@ function reviveWithAd() {
     if (reviveBtn) reviveBtn.classList.add('hidden');
 }
 
-// Gerar comida
-function generateFood() {
-    while (foodItems.length < 100) {
-        foodItems.push({
-            x: Math.random() * WORLD_WIDTH,
-            y: Math.random() * WORLD_HEIGHT,
-            value: 10 + Math.floor(Math.random() * 20)
-        });
-    }
-}
-
-// Verificar colisão com comida
-function checkFoodCollision() {
-    if (!player) return;
-    
-    for (let i = 0; i < foodItems.length; i++) {
-        const food = foodItems[i];
-        const dx = player.data.x - food.x;
-        const dy = player.data.y - food.y;
-        const distance = Math.hypot(dx, dy);
-        
-        if (distance < player.data.size + 8) {
-            player.addPoints(food.value);
-            foodItems.splice(i, 1);
-            break;
-        }
-    }
-}
-
-// Verificar colisão com outros jogadores
-function checkPlayerCollision() {
-    if (!player) return true;
-    
-    for (let id in players) {
-        if (id === player.id) continue;
-        const other = players[id];
-        if (!other) continue;
-        
-        const dx = player.data.x - other.x;
-        const dy = player.data.y - other.y;
-        const distance = Math.hypot(dx, dy);
-        
-        if (distance < player.data.size + (other.size || 30)) {
-            if (player.data.size > (other.size || 30)) {
-                player.addPoints(Math.floor((other.score || 0) / 2));
-                set(ref(db, `players/${id}`), null);
-            } else if (player.data.size < (other.size || 30)) {
-                gameOver();
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 // Desenhar
 function draw() {
     if (!ctx || !canvas || !player) return;
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Fundo
-    ctx.fillStyle = '#1a472a';
+    // Fundo gradiente
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, '#1a472a');
+    gradient.addColorStop(1, '#0d2818');
+    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Comida
@@ -208,11 +152,11 @@ function draw() {
             const screen = worldToScreen(food.x, food.y);
             ctx.fillStyle = '#FFD700';
             ctx.beginPath();
-            ctx.arc(screen.x, screen.y, 6, 0, Math.PI * 2);
+            ctx.arc(screen.x, screen.y, 7, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = '#FFA500';
             ctx.font = 'bold 10px Arial';
-            ctx.fillText(`+${food.value}`, screen.x - 12, screen.y - 8);
+            ctx.fillText(`+${food.value}`, screen.x - 12, screen.y - 10);
         }
     });
     
@@ -229,7 +173,7 @@ function draw() {
             
             ctx.fillStyle = 'white';
             ctx.font = 'bold 10px Arial';
-            ctx.fillText(`Lv.${p.level}`, screen.x - 15, screen.y - (p.size || 30) - 5);
+            ctx.fillText(`Lv.${p.level}`, screen.x - 20, screen.y - (p.size || 30) - 5);
         }
     }
     
@@ -240,7 +184,7 @@ function draw() {
     
     ctx.fillStyle = 'white';
     ctx.font = 'bold 14px Arial';
-    ctx.fillText(`Lv.${player.data.level}`, screen.x - 15, screen.y - player.data.size - 10);
+    ctx.fillText(`${stage.name} Lv.${player.data.level}`, screen.x - 35, screen.y - player.data.size - 10);
     
     // Minimapa
     drawMinimap();
@@ -254,7 +198,7 @@ function drawMinimap() {
     const mapX = canvas.width - mapSize - 10;
     const mapY = 10;
     
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(mapX, mapY, mapSize, mapSize);
     ctx.strokeStyle = 'white';
     ctx.strokeRect(mapX, mapY, mapSize, mapSize);
@@ -266,10 +210,10 @@ function drawMinimap() {
     for (let id in players) {
         if (id === player?.id) continue;
         const p = players[id];
-        if (p) {
-            ctx.fillStyle = '#FF4444';
+        if (p && p.x && p.y) {
+            ctx.fillStyle = '#FF6666';
             ctx.beginPath();
-            ctx.arc(mapX + p.x * scaleX, mapY + p.y * scaleY, 2, 0, Math.PI * 2);
+            ctx.arc(mapX + p.x * scaleX, mapY + p.y * scaleY, 3, 0, Math.PI * 2);
             ctx.fill();
         }
     }
@@ -278,31 +222,43 @@ function drawMinimap() {
     if (player) {
         ctx.fillStyle = '#44FF44';
         ctx.beginPath();
-        ctx.arc(mapX + player.data.x * scaleX, mapY + player.data.y * scaleY, 3, 0, Math.PI * 2);
+        ctx.arc(mapX + player.data.x * scaleX, mapY + player.data.y * scaleY, 4, 0, Math.PI * 2);
         ctx.fill();
+    }
+    
+    // Viewport
+    if (canvas) {
+        const viewX = mapX + camera.x * scaleX;
+        const viewY = mapY + camera.y * scaleY;
+        const viewW = (canvas.width / WORLD_WIDTH) * mapSize;
+        const viewH = (canvas.height / WORLD_HEIGHT) * mapSize;
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(viewX, viewY, viewW, viewH);
     }
 }
 
 // Loop principal
 function gameLoop() {
     if (!gameRunning || !player) {
-        draw();
-        if (animationId) {
-            cancelAnimationFrame(animationId);
-            animationId = null;
-        }
+        if (animationId) cancelAnimationFrame(animationId);
         return;
     }
     
     updatePosition();
-    generateFood();
-    checkFoodCollision();
     
-    if (!checkPlayerCollision()) {
-        draw();
-        requestAnimationFrame(gameLoop);
-        return;
-    }
+    // Gerar comida
+    foodItems = CollisionSystem.generateFood(WORLD_WIDTH, WORLD_HEIGHT, foodItems, 150);
+    
+    // Colisões
+    const collisionSystem = new CollisionSystem(player, gameOver);
+    collisionSystem.checkFoodCollision(foodItems, (points) => {
+        player.addPoints(points);
+    });
+    
+    collisionSystem.checkPlayerCollision(players, async (id) => {
+        await remove(ref(db, `players/${id}`));
+    });
     
     draw();
     animationId = requestAnimationFrame(gameLoop);
@@ -311,7 +267,7 @@ function gameLoop() {
 // Iniciar jogo
 async function startGame() {
     try {
-        console.log('Iniciando jogo...');
+        console.log('Iniciando NakaMorph...');
         
         const playBtn = document.getElementById('playAnonymously');
         if (playBtn) {
@@ -323,14 +279,12 @@ async function startGame() {
         const playerId = userCredential.user.uid;
         console.log('Conectado:', playerId);
         
-        // Inicializar player
         player = new Player(playerId, canvas);
         player.data.x = WORLD_WIDTH / 2;
         player.data.y = WORLD_HEIGHT / 2;
         player.data.size = 30;
         await player.saveToFirebase();
-        
-        collisionSystem = new CollisionSystem(player, gameOver);
+        player.setupDisconnect();
         
         // Ouvir outros jogadores
         const playersRef = ref(db, 'players');
@@ -338,24 +292,14 @@ async function startGame() {
             players = snapshot.val() || {};
         });
         
-        // Remover ao desconectar
-        if (player.id) {
-            const playerRef = ref(db, `players/${player.id}`);
-            onValue(playerRef, (snapshot) => {
-                if (!snapshot.exists()) {
-                    console.log('Jogador removido');
-                }
-            });
-        }
+        // Gerar comida inicial
+        foodItems = CollisionSystem.generateFood(WORLD_WIDTH, WORLD_HEIGHT, [], 150);
         
-        generateFood();
         gameRunning = true;
         
         // Alternar telas
-        const loginScreen = document.getElementById('loginScreen');
-        const gameScreen = document.getElementById('gameScreen');
-        if (loginScreen) loginScreen.classList.remove('active');
-        if (gameScreen) gameScreen.classList.add('active');
+        document.getElementById('loginScreen').classList.remove('active');
+        document.getElementById('gameScreen').classList.add('active');
         
         resizeCanvas();
         updateCamera();
@@ -378,31 +322,16 @@ async function startGame() {
 }
 
 // Event Listeners
-const playBtn = document.getElementById('playAnonymously');
-if (playBtn) playBtn.addEventListener('click', startGame);
-
-const reviveBtn = document.getElementById('reviveAd');
-if (reviveBtn) reviveBtn.addEventListener('click', reviveWithAd);
-
-const openShopBtn = document.getElementById('openShop');
-if (openShopBtn) {
-    openShopBtn.addEventListener('click', () => {
-        const gameScreen = document.getElementById('gameScreen');
-        const shopScreen = document.getElementById('shopScreen');
-        if (gameScreen) gameScreen.classList.remove('active');
-        if (shopScreen) shopScreen.classList.add('active');
-    });
-}
-
-const closeShopBtn = document.getElementById('closeShop');
-if (closeShopBtn) {
-    closeShopBtn.addEventListener('click', () => {
-        const gameScreen = document.getElementById('gameScreen');
-        const shopScreen = document.getElementById('shopScreen');
-        if (shopScreen) shopScreen.classList.remove('active');
-        if (gameScreen) gameScreen.classList.add('active');
-    });
-}
+document.getElementById('playAnonymously')?.addEventListener('click', startGame);
+document.getElementById('reviveAd')?.addEventListener('click', reviveWithAd);
+document.getElementById('openShop')?.addEventListener('click', () => {
+    document.getElementById('gameScreen')?.classList.remove('active');
+    document.getElementById('shopScreen')?.classList.add('active');
+});
+document.getElementById('closeShop')?.addEventListener('click', () => {
+    document.getElementById('shopScreen')?.classList.remove('active');
+    document.getElementById('gameScreen')?.classList.add('active');
+});
 
 resizeCanvas();
-console.log('Game.js carregado com sucesso!');
+console.log('Game.js carregado!');
