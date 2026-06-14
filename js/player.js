@@ -93,10 +93,14 @@ export class Player {
     }
 
     // Atualizar posição
-    updatePosition(x, y) {
-        this.data.x = Math.max(this.data.size, Math.min(this.canvas.width - this.data.size, x));
-        this.data.y = Math.max(this.data.size, Math.min(this.canvas.height - this.data.size, y));
-    }
+    // Dentro da classe Player, atualizar a função updatePosition:
+
+updatePosition(x, y, world) {
+    // Aplicar limites do mundo
+    const clamped = world.clampPosition(x, y, this.data.size);
+    this.data.x = clamped.x;
+    this.data.y = clamped.y;
+}
 
     // Aplicar skin
     setSkin(skinId) {
