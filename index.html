@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>NakaMorph - Evolua e Domine</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Tela de Login/Conexão -->
+        <div id="loginScreen" class="screen active">
+            <div class="logo-container">
+                <h1 class="game-title">⚡ NakaMorph ⚡</h1>
+                <p class="tagline">Cresça, Evolua, Domine!</p>
+            </div>
+            <div class="login-card">
+                <button id="playAnonymously" class="btn btn-primary">🎮 Jogar Agora</button>
+                <button id="watchAdForBoost" class="btn btn-ad">📺 Assistir Anúncio + Dobro XP</button>
+            </div>
+        </div>
+
+        <!-- Tela do Jogo -->
+        <div id="gameScreen" class="screen">
+            <div class="game-header">
+                <div class="stats">
+                    <div class="stat">📊 Nível: <span id="level">1</span></div>
+                    <div class="stat">⭐ Pontos: <span id="score">0</span></div>
+                    <div class="stat">📏 Tamanho: <span id="size">30</span></div>
+                    <div class="stat">💎 Gemas: <span id="gems">0</span></div>
+                </div>
+                <div class="shop-button">
+                    <button id="openShop" class="btn-shop">🛒 Loja</button>
+                </div>
+            </div>
+            
+            <canvas id="gameCanvas"></canvas>
+            
+            <div class="game-controls">
+                <div class="control-info">🖱️ Movimente o mouse (PC) ou arraste o dedo (Mobile)</div>
+                <button id="reviveAd" class="btn-revive hidden">📺 Reviver com Anúncio</button>
+            </div>
+        </div>
+
+        <!-- Loja -->
+        <div id="shopScreen" class="screen">
+            <h2>🛍️ Loja NakaMorph</h2>
+            <div class="shop-items">
+                <div class="shop-item" data-type="skin" data-id="dragon">
+                    <div class="item-icon">🐉</div>
+                    <div class="item-name">Skin Dragão</div>
+                    <div class="item-price">💎 50</div>
+                    <button class="buy-item">Comprar</button>
+                </div>
+                <div class="shop-item" data-type="skin" data-id="phoenix">
+                    <div class="item-icon">🔥</div>
+                    <div class="item-name">Skin Fênix</div>
+                    <div class="item-price">💎 100</div>
+                    <button class="buy-item">Comprar</button>
+                </div>
+                <div class="shop-item" data-type="boost" data-id="double">
+                    <div class="item-icon">⚡</div>
+                    <div class="item-name">Dobro de Pontos (30min)</div>
+                    <div class="item-price">📺 Anúncio</div>
+                    <button class="buy-item-ad">Assistir</button>
+                </div>
+            </div>
+            <button id="closeShop" class="btn-close">Fechar</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="js/firebase-config.js"></script>
+    <script type="module" src="js/player.js"></script>
+    <script type="module" src="js/collision.js"></script>
+    <script type="module" src="js/shop.js"></script>
+    <script type="module" src="js/game.js"></script>
+</body>
+</html>
