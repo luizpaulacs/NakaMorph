@@ -1,0 +1,321 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+.container {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+}
+
+.screen {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.screen.active {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Tela de Login */
+.logo-container {
+    text-align: center;
+    margin-bottom: 50px;
+    animation: fadeInDown 0.8s ease;
+}
+
+.game-title {
+    font-size: 4rem;
+    color: white;
+    text-shadow: 3px 3px 6px rgba(0,0,0,0.3);
+    letter-spacing: 2px;
+    animation: pulse 2s infinite;
+}
+
+.tagline {
+    color: #FFD700;
+    font-size: 1.2rem;
+    margin-top: 10px;
+}
+
+.login-card {
+    background: rgba(255,255,255,0.95);
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    text-align: center;
+    min-width: 300px;
+}
+
+.btn {
+    padding: 15px 30px;
+    font-size: 1.2rem;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    margin: 10px;
+    width: 200px;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-weight: bold;
+}
+
+.btn-ad {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+}
+
+/* Tela do Jogo */
+.game-header {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0,0,0,0.7);
+    padding: 10px 20px;
+    border-radius: 15px;
+    backdrop-filter: blur(10px);
+    z-index: 10;
+}
+
+.stats {
+    display: flex;
+    gap: 20px;
+    color: white;
+    font-weight: bold;
+}
+
+.stat {
+    background: rgba(0,0,0,0.5);
+    padding: 5px 10px;
+    border-radius: 10px;
+}
+
+.btn-shop {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    border: none;
+    padding: 8px 20px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: transform 0.2s;
+}
+
+.btn-shop:hover {
+    transform: scale(1.05);
+}
+
+#gameCanvas {
+    display: block;
+    margin: 0 auto;
+    background: linear-gradient(180deg, #1a472a 0%, #2d5a3b 100%);
+    border-radius: 15px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    cursor: none;
+}
+
+.game-controls {
+    position: fixed;
+    bottom: 20px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: white;
+    background: rgba(0,0,0,0.6);
+    padding: 10px;
+    backdrop-filter: blur(10px);
+}
+
+.control-info {
+    font-size: 0.9rem;
+}
+
+.btn-revive {
+    background: linear-gradient(135deg, #FF6B6B, #FFE66D);
+    border: none;
+    padding: 12px 30px;
+    border-radius: 50px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 10px;
+    animation: pulse 1s infinite;
+}
+
+.hidden {
+    display: none;
+}
+
+/* Loja */
+#shopScreen h2 {
+    color: white;
+    margin-bottom: 30px;
+}
+
+.shop-items {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    padding: 20px;
+    background: white;
+    border-radius: 20px;
+    margin: 20px;
+    max-width: 800px;
+    width: 90%;
+}
+
+.shop-item {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    padding: 20px;
+    border-radius: 15px;
+    text-align: center;
+    transition: transform 0.2s;
+}
+
+.shop-item:hover {
+    transform: translateY(-5px);
+}
+
+.item-icon {
+    font-size: 3rem;
+}
+
+.item-name {
+    font-weight: bold;
+    margin: 10px 0;
+}
+
+.item-price {
+    color: #FFD700;
+    font-weight: bold;
+    margin: 10px 0;
+    text-shadow: 1px 1px 1px rgba(0,0,0,0.2);
+}
+
+.buy-item, .buy-item-ad {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    padding: 8px 20px;
+    border-radius: 25px;
+    cursor: pointer;
+    color: white;
+    font-weight: bold;
+    transition: transform 0.2s;
+}
+
+.buy-item:hover, .buy-item-ad:hover {
+    transform: scale(1.05);
+}
+
+.btn-close {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    padding: 12px 30px;
+    background: #FF4444;
+    color: white;
+    border: none;
+    border-radius: 25px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: transform 0.2s;
+}
+
+.btn-close:hover {
+    transform: scale(1.05);
+}
+
+/* Animações */
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .game-title {
+        font-size: 2rem;
+    }
+    
+    .stats {
+        gap: 10px;
+        font-size: 0.8rem;
+    }
+    
+    .stat {
+        padding: 3px 8px;
+    }
+    
+    .shop-items {
+        grid-template-columns: 1fr;
+        margin: 10px;
+    }
+    
+    .btn-shop {
+        padding: 5px 15px;
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .btn {
+        width: 150px;
+        font-size: 0.9rem;
+    }
+    
+    .game-controls {
+        font-size: 0.8rem;
+    }
+}
