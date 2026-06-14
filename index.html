@@ -8,7 +8,7 @@
 </head>
 <body>
     <div class="container">
-        <!-- Tela de Login/Conexão -->
+        <!-- Tela de Login -->
         <div id="loginScreen" class="screen active">
             <div class="logo-container">
                 <h1 class="game-title">⚡ NakaMorph ⚡</h1>
@@ -28,6 +28,7 @@
                     <div class="stat">⭐ Pontos: <span id="score">0</span></div>
                     <div class="stat">📏 Tamanho: <span id="size">30</span></div>
                     <div class="stat">💎 Gemas: <span id="gems">0</span></div>
+                    <div class="stat">🏆 Evolução: <span id="evolution-title">Novato</span></div>
                 </div>
                 <div class="shop-button">
                     <button id="openShop" class="btn-shop">🛒 Loja</button>
@@ -69,8 +70,8 @@
         </div>
     </div>
 
-    <!-- Scripts -->
     <script type="module" src="js/firebase-config.js"></script>
+    <script type="module" src="js/evolution.js"></script>
     <script type="module" src="js/player.js"></script>
     <script type="module" src="js/collision.js"></script>
     <script type="module" src="js/shop.js"></script>
